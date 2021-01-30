@@ -2,6 +2,7 @@ package downloader
 
 import (
 	"context"
+	"errors"
 	"github.com/ViRb3/go-parallel/throttler"
 	"github.com/ViRb3/sling/v2"
 	"io"
@@ -51,6 +52,8 @@ type SharedConfig struct {
 	Workers int
 	// Download requests to run.
 	Requests []Request
+	// If not empty, response status codes other than the defined will return an error.
+	ExpectedStatusCodes []int
 }
 
 func NewMultiDownloader(config ConfigRaw) *MultiDownloader {
@@ -68,6 +71,22 @@ func NewMultiDownloaderSling(config ConfigSling) *MultiDownloader {
 	}
 	return &downloader
 }
+
+func (s *MultiDownloader) IsStatusCodeExpected(code int) bool {
+	if len(s.shared.ExpectedStatusCodes) < 1 {
+		return true
+	}
+	for _, code2 := range s.shared.ExpectedStatusCodes {
+		if code == code2 {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	ErrUnexpectedStatusCode = errors.New("unexpected status code")
+)
 
 func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
@@ -120,7 +139,12 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	returnResult := make(chan Result, 10)
 	go func() {
 		for result := range downloadThrottler.Run() {
-			returnResult <- result.(Result)
+			resultCast := result.(Result)
+			statusCode := resultCast.Response.StatusCode
+			if resultCast.Err == nil && !s.IsStatusCodeExpected(statusCode) {
+				resultCast.Err = ErrUnexpectedStatusCode
+			}
+			returnResult <- resultCast
 		}
 		close(returnResult)
 	}()
