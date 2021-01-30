@@ -18,6 +18,7 @@ type Job struct {
 }
 
 type Result struct {
+	Request  *http.Request
 	Response *http.Response
 	Job      Job
 	Err      error
@@ -102,37 +103,53 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 		Workers:      s.shared.Workers,
 		Source:       source,
 		Operation: func(sourceItem interface{}) interface{} {
-			request := sourceItem.(Job)
-			resp, err := s.client.New().Head(request.Url).Receive(nil, nil)
-			if err != nil {
-				return Result{resp, request, err}
-			}
-			// if HEAD is supported, compare file lengths to see if we can skip re-downloading
-			if s.shared.SkipSameLength && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-				if contentLen := resp.Header.Get("Content-Length"); contentLen != "" {
-					contentLenInt, err := strconv.ParseInt(contentLen, 10, 64)
-					if err == nil {
-						if stat, err := os.Stat(request.SaveFilePath); err == nil && stat.Size() == contentLenInt {
-							return Result{resp, request, nil}
+			job := sourceItem.(Job)
+			var result Result
+			result.Err = func() error {
+				req, err := s.client.New().Head(job.Url).Request()
+				result = Result{Job: job, Request: req}
+				if err != nil {
+					return err
+				}
+				resp, err := s.client.New().DoRaw(req)
+				result.Response = resp
+				if err != nil {
+					return err
+				}
+				// if HEAD is supported, compare file lengths to see if we can skip re-downloading
+				if s.shared.SkipSameLength && resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+					if contentLen := resp.Header.Get("Content-Length"); contentLen != "" {
+						contentLenInt, err := strconv.ParseInt(contentLen, 10, 64)
+						if err == nil {
+							if stat, err := os.Stat(job.SaveFilePath); err == nil && stat.Size() == contentLenInt {
+								return nil
+							}
 						}
 					}
 				}
-			}
-			resp, err = s.client.New().Get(request.Url).ReceiveBody()
-			if err != nil {
-				return Result{resp, request, err}
-			}
-			defer resp.Body.Close()
-			file, err := os.Create(request.SaveFilePath)
-			if err != nil {
-				return Result{resp, request, err}
-			}
-			defer file.Close()
-			if _, err := io.Copy(file, resp.Body); err != nil {
-				os.Remove(file.Name())
-				return Result{resp, request, err}
-			}
-			return Result{resp, request, nil}
+				req, err = s.client.New().Get(job.Url).Request()
+				result = Result{Job: job, Request: req}
+				if err != nil {
+					return err
+				}
+				resp, err = s.client.New().DoRaw(req)
+				result.Response = resp
+				if err != nil {
+					return err
+				}
+				defer resp.Body.Close()
+				file, err := os.Create(job.SaveFilePath)
+				if err != nil {
+					return err
+				}
+				defer file.Close()
+				if _, err := io.Copy(file, resp.Body); err != nil {
+					os.Remove(file.Name())
+					return err
+				}
+				return nil
+			}()
+			return result
 		},
 	})
 
