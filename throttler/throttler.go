@@ -36,7 +36,10 @@ func (t *Throttler) Run() <-chan interface{} {
 	resultChan := make(chan interface{}, t.config.ResultBuffer)
 	wg := sync.WaitGroup{}
 
-	bar := newBar(len(t.config.Source))
+	var bar interface{}
+	if t.config.ShowProgress {
+		bar = newBar(len(t.config.Source))
+	}
 	wg.Add(len(t.config.Source))
 
 	go func() {
@@ -49,14 +52,18 @@ func (t *Throttler) Run() <-chan interface{} {
 				go func() {
 					result := t.config.Operation(sourceItem)
 					resultChan <- result
-					bar.Add(1)
+					if t.config.ShowProgress {
+						bar.(*progressbar.ProgressBar).Add(1)
+					}
 					wg.Done()
 					<-throttleChan
 				}()
 			}
 		}
 		wg.Wait()
-		bar.Finish()
+		if t.config.ShowProgress {
+			bar.(*progressbar.ProgressBar).Finish()
+		}
 		close(resultChan)
 	}()
 
