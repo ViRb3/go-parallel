@@ -11,7 +11,7 @@ import (
 	"strconv"
 )
 
-type Request struct {
+type Job struct {
 	SaveFilePath string
 	Url          string
 	Tag          interface{}
@@ -19,7 +19,7 @@ type Request struct {
 
 type Result struct {
 	Response *http.Response
-	Request  Request
+	Job      Job
 	Err      error
 }
 
@@ -43,15 +43,15 @@ type ConfigSling struct {
 type SharedConfig struct {
 	// If true, continuously print a progress bar.
 	ShowProgress bool
-	// If true, send a HEAD request to each Request.Url before downloading.
+	// If true, send a HEAD request to each Job.Url before downloading.
 	// If the HEAD request succeeds, contains a Content-Length header, there is a local file at the same path as
-	// Request.SaveFilePath, and the local file's size matches Content-Length, then assume that the files are identical
+	// Job.SaveFilePath, and the local file's size matches Content-Length, then assume that the files are identical
 	// and skip downloading.SkipSameLength bool
 	SkipSameLength bool
 	// How many parallel workers to run.
 	Workers int
-	// Download requests to run.
-	Requests []Request
+	// Download jobs to run.
+	Jobs []Job
 	// If not empty, response status codes other than the defined will return an error.
 	ExpectedStatusCodes []int
 }
@@ -91,8 +91,8 @@ var (
 func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	var source []interface{}
-	for i := range s.shared.Requests {
-		source = append(source, s.shared.Requests[i])
+	for i := range s.shared.Jobs {
+		source = append(source, s.shared.Jobs[i])
 	}
 
 	downloadThrottler := throttler.NewThrottler(throttler.Config{
@@ -102,7 +102,7 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 		Workers:      s.shared.Workers,
 		Source:       source,
 		Operation: func(sourceItem interface{}) interface{} {
-			request := sourceItem.(Request)
+			request := sourceItem.(Job)
 			resp, err := s.client.New().Head(request.Url).Receive(nil, nil)
 			if err != nil {
 				return Result{resp, request, err}
