@@ -21,6 +21,7 @@ type Result struct {
 	Request  *http.Request
 	Response *http.Response
 	Job      Job
+	Skipped  bool
 	Err      error
 }
 
@@ -122,6 +123,7 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 						contentLenInt, err := strconv.ParseInt(contentLen, 10, 64)
 						if err == nil {
 							if stat, err := os.Stat(job.SaveFilePath); err == nil && stat.Size() == contentLenInt {
+								result.Skipped = true
 								return nil
 							}
 						}
