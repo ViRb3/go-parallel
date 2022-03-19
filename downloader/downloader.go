@@ -11,16 +11,16 @@ import (
 	"strconv"
 )
 
-type Job struct {
+type Job[T any] struct {
 	SaveFilePath string
 	Url          string
-	Tag          interface{}
+	Tag          T
 }
 
 type Result struct {
 	Request  *http.Request
 	Response *http.Response
-	Job      Job
+	Job      Job[any]
 	Skipped  bool
 	Err      error
 }
@@ -53,7 +53,7 @@ type SharedConfig struct {
 	// How many parallel workers to run.
 	Workers int
 	// Download jobs to run.
-	Jobs []Job
+	Jobs []Job[any]
 	// If not empty, response status codes other than the defined will return an error.
 	ExpectedStatusCodes []int
 }
@@ -66,7 +66,7 @@ func NewMultiDownloader(config ConfigRaw) *MultiDownloader {
 	return &downloader
 }
 
-func NewMultiDownloaderSling(config ConfigSling) *MultiDownloader {
+func NewMultiDownloaderSling[T any](config ConfigSling) *MultiDownloader {
 	downloader := MultiDownloader{
 		client: config.Client,
 		shared: config.SharedConfig,
@@ -92,19 +92,14 @@ var (
 
 func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	var source []interface{}
-	for i := range s.shared.Jobs {
-		source = append(source, s.shared.Jobs[i])
-	}
 
-	downloadThrottler := throttler.NewThrottler(throttler.Config{
+	downloadThrottler := throttler.NewThrottler(throttler.Config[Job[any], Result]{
 		ShowProgress: s.shared.ShowProgress,
 		Ctx:          ctx,
 		ResultBuffer: 0,
 		Workers:      s.shared.Workers,
-		Source:       source,
-		Operation: func(sourceItem interface{}) interface{} {
-			job := sourceItem.(Job)
+		Source:       s.shared.Jobs,
+		Operation: func(job Job[any]) Result {
 			var result Result
 			result.Err = func() error {
 				req, err := s.client.New().Head(job.Url).Request()
@@ -158,12 +153,11 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	returnResult := make(chan Result, 10)
 	go func() {
 		for result := range downloadThrottler.Run() {
-			resultCast := result.(Result)
-			statusCode := resultCast.Response.StatusCode
-			if resultCast.Err == nil && !s.IsStatusCodeExpected(statusCode) {
-				resultCast.Err = ErrUnexpectedStatusCode
+			statusCode := result.Response.StatusCode
+			if result.Err == nil && !s.IsStatusCodeExpected(statusCode) {
+				result.Err = ErrUnexpectedStatusCode
 			}
-			returnResult <- resultCast
+			returnResult <- result
 		}
 		close(returnResult)
 	}()

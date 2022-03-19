@@ -6,11 +6,11 @@ import (
 	"sync"
 )
 
-type Throttler struct {
-	config Config
+type Throttler[T any, P any] struct {
+	config Config[T, P]
 }
 
-type Config struct {
+type Config[T any, P any] struct {
 	// If true, continuously print a progress bar.
 	ShowProgress bool
 	// Use context.config.WithCancel to allow premature halt of the operation.
@@ -20,20 +20,20 @@ type Config struct {
 	// How many parallel workers to run.
 	Workers int
 	// Data to operate on.
-	Source []interface{}
-	// Function that will be ran on each Source item.
-	Operation func(sourceItem interface{}) interface{}
+	Source []T
+	// Function that will be run on each Source item.
+	Operation func(sourceItem T) P
 }
 
-func NewThrottler(config Config) *Throttler {
-	return &Throttler{
+func NewThrottler[T any, P any](config Config[T, P]) *Throttler[T, P] {
+	return &Throttler[T, P]{
 		config: config,
 	}
 }
 
-func (t *Throttler) Run() <-chan interface{} {
+func (t *Throttler[T, P]) Run() <-chan P {
 	throttleChan := make(chan bool, t.config.Workers)
-	resultChan := make(chan interface{}, t.config.ResultBuffer)
+	resultChan := make(chan P, t.config.ResultBuffer)
 	wg := sync.WaitGroup{}
 
 	var bar interface{}
