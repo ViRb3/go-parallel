@@ -153,8 +153,7 @@ func (s *MultiDownloader) Run() (<-chan Result, context.CancelFunc) {
 	returnResult := make(chan Result, 10)
 	go func() {
 		for result := range downloadThrottler.Run() {
-			statusCode := result.Response.StatusCode
-			if result.Err == nil && !s.IsStatusCodeExpected(statusCode) {
+			if result.Err == nil && !s.IsStatusCodeExpected(result.Response.StatusCode) {
 				result.Err = ErrUnexpectedStatusCode
 			}
 			returnResult <- result
